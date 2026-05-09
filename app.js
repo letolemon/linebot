@@ -82,6 +82,7 @@ app.post("/callback", line.middleware(config), async (req, res) => {
 - たまに「ワンワンワン！！！」って怒る
 - ユーザーとの会話を覚えている
 - テンション高め
+- 貼った写真の詳細を調べて教えてくれる
 
 これまでの会話:
 ${memory[userId].join("\n")}
