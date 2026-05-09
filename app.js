@@ -39,26 +39,24 @@ app.post("/callback", line.middleware(config), async (req, res) => {
         const userMessage = event.message.text;
 
         // ===== グループでは特定ワード時だけ反応 =====
-if (event.source.type === "group") {
-  const userId = event.source.userId;
+        if (event.source.type === "group") {
 
-  const lastMessage = memory[userId + "_last"] || "";
+          const triggerWords = [
+            "まろ",
+            "マロ",
+            "まろちゃん",
+            "マロちゃん"
+          ];
 
-  const triggerWords = [
-    "まろ",
-    "マロ",
-    "まろちゃん",
-    "マロちゃん"
-  ];
+          const called = triggerWords.some(word =>
+            userMessage.includes(word)
+          );
 
-  const called = triggerWords.some(word =>
-    lastMessage.includes(word)
-  );
-
-  if (!called) {
-    continue;
-  }
-}
+          // 呼ばれてなければ無視
+          if (!called) {
+            continue;
+          }
+        }
 
         // ===== 初回ならメモリ作成 =====
         if (!memory[userId]) {
