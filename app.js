@@ -102,6 +102,10 @@ AI:
         });
       }
 
+      // ===== 画像 =====
+      if (event.message.type === "image") {
+
+
         // LINEから画像取得
         const stream = await client.getMessageContent(event.message.id);
 
