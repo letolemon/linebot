@@ -21,7 +21,7 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-app.post("/webhook", line.middleware(config), async (req, res) => {
+app.post("/callback", line.middleware(config), async (req, res) => {
 
   try {
 
