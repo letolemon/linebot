@@ -10,9 +10,6 @@ const app = express();
 // ===== 会話記憶 =====
 const memory = {};
 
-// ===== 呼び出し時間記録（追加）=====
-const lastCallTime = {};
-
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -32,6 +29,7 @@ app.post("/callback", line.middleware(config), async (req, res) => {
 
     for (const event of events) {
 
+      // メッセージ以外は無視
       if (event.type !== "message") continue;
 
       // ===== テキスト =====
@@ -40,36 +38,40 @@ app.post("/callback", line.middleware(config), async (req, res) => {
         const userId = event.source.userId;
         const userMessage = event.message.text;
 
-        const triggerWords = [
-          "まろ",
-          "マロ",
-          "まろちゃん",
-          "マロちゃん"
-        ];
+        // ===== グループでは特定ワード時だけ反応 =====
+if (event.source.type === "group") {
+  const userId = event.source.userId;
 
-        // ===== グループ制御 =====
-        if (event.source.type === "group") {
+  const lastMessage = memory[userId + "_last"] || "";
 
-          const called = triggerWords.some(word =>
-            userMessage.includes(word)
-          );
+  const triggerWords = [
+    "まろ",
+    "マロ",
+    "まろちゃん",
+    "マロちゃん"
+  ];
 
-          if (!called) {
-            continue;
-          }
+  const called = triggerWords.some(word =>
+    lastMessage.includes(word)
+  );
 
-          // 👇 呼ばれた時間を保存
-          lastCallTime[userId] = Date.now();
-        }
+  if (!called) {
+    continue;
+  }
+}
 
-        // ===== メモリ初期化 =====
+        // ===== 初回ならメモリ作成 =====
         if (!memory[userId]) {
           memory[userId] = [];
         }
 
+        // ===== ユーザー発言保存 =====
         memory[userId].push(`ユーザー: ${userMessage}`);
+
+        // ===== 長すぎ防止 =====
         memory[userId] = memory[userId].slice(-15);
 
+        // ===== Geminiへ送信 =====
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: `
@@ -80,7 +82,7 @@ app.post("/callback", line.middleware(config), async (req, res) => {
 - タメ口
 - 1文は短め
 - たまに「ワンワンワン！！！」って怒る
-- 会話を覚える
+- ユーザーとの会話を覚えている
 - テンション高め
 
 これまでの会話:
@@ -92,8 +94,10 @@ AI:
 
         const aiMessage = response.text;
 
+        // ===== AI返答保存 =====
         memory[userId].push(`AI: ${aiMessage}`);
 
+        // ===== LINE返信 =====
         await client.replyMessage(event.replyToken, {
           type: "text",
           text: aiMessage,
@@ -103,29 +107,26 @@ AI:
       // ===== 画像 =====
       if (event.message.type === "image") {
 
-        const userId = event.source.userId;
-
-        // ===== グループ制御（30秒以内）=====
+        // グループでは画像も「まろ」が必要
         if (event.source.type === "group") {
-
-          const lastTime = lastCallTime[userId] || 0;
-          const now = Date.now();
-
-          if (now - lastTime > 30000) {
-            continue;
-          }
+          continue;
         }
 
+        // LINEから画像取得
         const stream = await client.getMessageContent(event.message.id);
 
         const chunks = [];
+
         for await (const chunk of stream) {
           chunks.push(chunk);
         }
 
         const buffer = Buffer.concat(chunks);
+
+        // base64変換
         const base64Image = buffer.toString("base64");
 
+        // Geminiへ画像送信
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: [
@@ -140,18 +141,19 @@ AI:
 あなたは画像認識が得意な犬AIです。
 
 ルール:
-- 画像の内容をできるだけ具体的に特定
-- 食べ物・動物・物など判断
-- 名前を短く答える
-- 分からない場合は「不明ワン！」
+- 画像に写っているものをできるだけ具体的に特定する
+- 食べ物・動物・物などカテゴリも考える
+- 名前を短く答える（1〜2文）
+- 分からない場合は「不明ワン！」と答える
 - 語尾に「ワン！」をつける
+- テンション高め
 
 例:
-- ハンバーガーワン！
-- 柴犬ワン！
-- スマートフォンワン！
+- 「ハンバーガーワン！」
+- 「柴犬ワン！」
+- 「スマートフォンワン！」
 
-この画像は何ですか？
+この画像に写っているものは何ですか？
 `,
             },
           ],
@@ -167,8 +169,10 @@ AI:
     res.sendStatus(200);
 
   } catch (err) {
+
     console.error(err);
     res.sendStatus(500);
+
   }
 });
 
