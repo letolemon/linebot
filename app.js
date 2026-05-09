@@ -102,14 +102,6 @@ AI:
         });
       }
 
-      // ===== 画像 =====
-      if (event.message.type === "image") {
-
-        // グループでは画像も「まろ」が必要
-        if (event.source.type === "group") {
-          continue;
-        }
-
         // LINEから画像取得
         const stream = await client.getMessageContent(event.message.id);
 
