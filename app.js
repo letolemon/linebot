@@ -21,185 +21,159 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// =============================
-// callback
-// =============================
 app.post("/callback", line.middleware(config), async (req, res) => {
 
-  // LINEへ即レス
-  res.sendStatus(200);
+  try {
 
-  // 並列処理
-  await Promise.all(
-    req.body.events.map(async (event) => {
+    const events = req.body.events;
 
-      try {
+    for (const event of events) {
 
-        // =============================
-        // メッセージ以外無視
-        // =============================
-        if (event.type !== "message") return;
+      // メッセージ以外は無視
+      if (event.type !== "message") continue;
+
+      // ===== テキスト =====
+      if (event.message.type === "text") {
 
         const userId = event.source.userId;
+        const userMessage = event.message.text;
 
-        // userId無い場合無視
-        if (!userId) return;
+        // ===== グループでは特定ワード時だけ反応 =====
+        if (event.source.type === "group") {
 
-        // =============================
-        // テキスト
-        // =============================
-        if (event.message.type === "text") {
+          const triggerWords = [
+            "まろ",
+            "マロ",
+            "まろちゃん",
+            "マロちゃん"
+          ];
 
-          const userMessage = event.message.text;
+          const called = triggerWords.some(word =>
+            userMessage.includes(word)
+          );
 
-          // ===== グループ時だけ発動ワード判定 =====
-          if (event.source.type === "group") {
-
-            const triggerWords = [
-              "まろ",
-              "マロ",
-              "まろちゃん",
-              "マロちゃん"
-            ];
-
-            const called = triggerWords.some(word =>
-              userMessage.includes(word)
-            );
-
-            if (!called) return;
+          // 呼ばれてなければ無視
+          if (!called) {
+            continue;
           }
+        }
 
-          // ===== 初回メモリ =====
-          if (!memory[userId]) {
-            memory[userId] = [];
-          }
+        // ===== 初回ならメモリ作成 =====
+        if (!memory[userId]) {
+          memory[userId] = [];
+        }
 
-          // ===== ユーザー発言保存 =====
-          memory[userId].push(`ユーザー: ${userMessage}`);
+        // ===== ユーザー発言保存 =====
+        memory[userId].push(`ユーザー: ${userMessage}`);
 
-          // ===== 長さ制限 =====
-          memory[userId] = memory[userId].slice(-15);
+        // ===== 長すぎ防止 =====
+        memory[userId] = memory[userId].slice(-15);
 
-          // =============================
-          // Gemini
-          // =============================
-          const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `
-あなたはすごく物知りな犬AIです。名前は「まろ」または「マロ」
+        // ===== Geminiへ送信 =====
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `
+あなたは犬AIです。
 
 ルール:
 - 語尾に「ワン！」をつける
-- 質問されたことを具体的に短く答える
+- タメ口
 - 1文は短め
+- たまに「ワンワンワン！！！」って怒る
+- ユーザーとの会話を覚えている
 - テンション高め
-- ユーザーとの会話を覚える
-- 分からない時は「不明ワン！」
 
 これまでの会話:
 ${memory[userId].join("\n")}
 
 AI:
 `,
-          });
+        });
 
-          // ===== AI返答 =====
-          const aiMessage =
-            response.text || "うまく答えられなかったワン！";
+        const aiMessage = response.text;
 
-          // ===== AI保存 =====
-          memory[userId].push(`AI: ${aiMessage}`);
+        // ===== AI返答保存 =====
+        memory[userId].push(`AI: ${aiMessage}`);
 
-          // ===== 再制限 =====
-          memory[userId] = memory[userId].slice(-15);
-
-          // =============================
-          // PUSH送信
-          // =============================
-          await client.pushMessage(userId, {
-            type: "text",
-            text: aiMessage,
-          });
-
-        }
-
-        // =============================
-        // 画像
-        // =============================
-        if (event.message.type === "image") {
-
-          // ===== 画像取得 =====
-          const stream = await client.getMessageContent(event.message.id);
-
-          const chunks = [];
-
-          for await (const chunk of stream) {
-            chunks.push(chunk);
-          }
-
-          const buffer = Buffer.concat(chunks);
-
-          // ===== base64 =====
-          const base64Image = buffer.toString("base64");
-
-          // =============================
-          // Gemini画像解析
-          // =============================
-          const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [
-              {
-                inlineData: {
-                  mimeType: "image/jpeg",
-                  data: base64Image,
-                },
-              },
-              {
-                text: `
-あなたは画像認識が得意な犬AIです。名前は「まろ」
-
-ルール:
-- 送られてきた写真を正確に調べる
-- 短めに答える
-- 語尾に「ワン！」をつける
-- テンション高め
-- 分からない時は「不明ワン！」
-- 「魚」とか「車」とかざっくりな答えはダメ
-例:
-- 柴犬ワン！
-- ハンバーガーワン！
-- スマホワン！
-
-この画像は何？
-`,
-              },
-            ],
-          });
-
-          const aiMessage =
-            response.text || "画像が分からなかったワン！";
-
-          // =============================
-          // PUSH送信
-          // =============================
-          await client.pushMessage(userId, {
-            type: "text",
-            text: aiMessage,
-          });
-
-        }
-
-      } catch (err) {
-
-        console.error("エラー:", err);
-
+        // ===== LINE返信 =====
+        await client.replyMessage(event.replyToken, {
+          type: "text",
+          text: aiMessage,
+        });
       }
 
-    })
-  );
+      // ===== 画像 =====
+      if (event.message.type === "image") {
 
+        // グループでは画像も「まろ」が必要
+        if (event.source.type === "group") {
+          continue;
+        }
+
+        // LINEから画像取得
+        const stream = await client.getMessageContent(event.message.id);
+
+        const chunks = [];
+
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        const buffer = Buffer.concat(chunks);
+
+        // base64変換
+        const base64Image = buffer.toString("base64");
+
+        // Geminiへ画像送信
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: [
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: base64Image,
+              },
+            },
+            {
+              text: `
+あなたは画像認識が得意な犬AIです。
+
+ルール:
+- 画像に写っているものをできるだけ具体的に特定する
+- 食べ物・動物・物などカテゴリも考える
+- 名前を短く答える（1〜2文）
+- 分からない場合は「不明ワン！」と答える
+- 語尾に「ワン！」をつける
+- テンション高め
+
+例:
+- 「ハンバーガーワン！」
+- 「柴犬ワン！」
+- 「スマートフォンワン！」
+
+この画像に写っているものは何ですか？
+`,
+            },
+          ],
+        });
+
+        await client.replyMessage(event.replyToken, {
+          type: "text",
+          text: response.text,
+        });
+      }
+    }
+
+    res.sendStatus(200);
+
+  } catch (err) {
+
+    console.error(err);
+    res.sendStatus(500);
+
+  }
 });
 
 app.listen(3000, () => {
-  console.log("BOT起動ワン！");
+  console.log("動いた！");
 });
