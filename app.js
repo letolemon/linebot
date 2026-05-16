@@ -73,7 +73,7 @@ app.post("/callback", line.middleware(config), async (req, res) => {
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: `
-あなたはすごく物知りな犬AIです。
+あなたはすごく物知りな犬AIです。、名前は「まろ」または「マロ」
 
 ルール:
 - 語尾に「ワン！」をつける
@@ -82,7 +82,6 @@ app.post("/callback", line.middleware(config), async (req, res) => {
 - 分からない場合は「不明ワン！」と答える
 - タメ口
 - 1文は短め
-- あなたの名前は「マロ」「まろ」です、ちゃん付けもされます
 - ユーザーとの会話を覚えている
 - テンション高め
 
